@@ -18,7 +18,7 @@ function cleanTier(str) {
   }).map((s) => s.trim());
 }
 
-for (const file of readdirSync(dir).filter((f) => f.endsWith(".js") && f !== "index.js")) {
+for (const file of readdirSync(dir).filter((f) => f.endsWith(".js") && f !== "index.js" && !f.startsWith("mais-"))) {
   const mod = await import(pathToFileURL(path.join(dir, file)).href + "?" + Date.now());
   const hasCat = file.startsWith("extra");
   const out = mod.default.map((row) => {

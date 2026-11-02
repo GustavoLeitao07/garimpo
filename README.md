@@ -29,7 +29,11 @@ tatu cava. São 700 pontos possíveis por dia, e 700 pontos = pré-sal.
 - Autocorreção tolerante (acentos, plural, "rio …", erros de 1–2 letras) com confirmação
 - Revelação do garimpo completo de cada pergunta no final, com a sua resposta destacada
 - **Escada de raridade** mostrando onde sua resposta caiu e lista das tentativas recusadas
-- **Animações**: o tatu desce pelo poço, terra voa a cada acerto, pontos flutuam, placar conta, resultado revelado em sequência, cartão pulsa nos últimos 5 s
+- **Escavação animada**: ao acertar, aparecem as linhas de profundidade de cada nível e o tatu cava até a sua, com a câmera seguindo, poeira, sons e o túnel ficando marcado
+- **Subsolo vivo**: raízes, minhocas, ossos, vasos marajoaras, conchas e fósseis, aquífero, carvão, ferro, cristais, cavernas com morcegos e cogumelos brilhantes, fóssil de dinossauro, rubis, diamantes, lava, sal do pré-sal, petróleo e um baú no fundo
+- **Rever a escavação**: passeio pela mina inteira na tela de resultado, com cada resposta marcada no túnel
+- **Animações**: pontos flutuam, placar conta, resultado revelado em sequência, cartão pulsa nos últimos 5 s
+- **Sugerir respostas**: as tentativas recusadas viram uma sugestão no GitHub com um toque
 - **21 conquistas** (Achei ouro!, Lapidador, Fugiu do óbvio, Gatilho rápido, Pré-sal…)
 - **Instalável no celular (PWA)** e funciona offline; vibração ao acertar/errar
 - Botão "mandar no zap" e imagem de prévia para links no WhatsApp
@@ -41,7 +45,9 @@ tatu cava. São 700 pontos possíveis por dia, e 700 pontos = pré-sal.
 
 ## Banco de perguntas
 
-**201 perguntas e mais de 16.800 respostas classificadas**, em 13 categorias, em `js/data/*.js`.
+**204 perguntas e mais de 24.000 respostas classificadas**, em 13 categorias, em `js/data/*.js`.
+Os arquivos `mais-*.js` são **suplementos**: acrescentam respostas a perguntas existentes
+(chave = texto exato da pergunta) sem mexer na classificação original.
 O diário roda em ciclos de 28 dias sem repetir pergunta. Formato:
 
 ```js
@@ -87,6 +93,8 @@ js/app.js           rotas, telas, motor da escavação, Resenha, desafio
 js/store.js         persistência (localStorage)
 js/sound.js         efeitos 8-bit (WebAudio)
 js/sprites.js       mascotes pixel-art
+js/world.js         mundo: camadas, câmera, túnel, escavação animada
+js/deco.js          elementos do subsolo em pixel art
 js/fx.js            partículas, textos flutuantes, contadores, toasts, vibração
 js/achievements.js  conquistas
 sw.js, manifest.webmanifest   PWA (instalável/offline)

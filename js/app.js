@@ -8,6 +8,7 @@ import { sfx, unlockAudio } from "./sound.js";
 import { MASCOTS, spriteSVG } from "./sprites.js";
 import { burst, floatText, countUp, toast, buzz, replay } from "./fx.js";
 import { ACHIEVEMENTS, check as checkAchievements } from "./achievements.js";
+import * as world from "./world.js";
 
 const SITE = location.origin + location.pathname;
 const $ = (s, r = document) => r.querySelector(s);
@@ -27,11 +28,17 @@ function later(ms, fn) { const id = setTimeout(fn, ms); onCleanup(() => clearTim
 function listen(target, ev, fn, opts) { target.addEventListener(ev, fn, opts); onCleanup(() => target.removeEventListener(ev, fn, opts)); }
 
 // ---------------------------------------------------------------- mundo (fundo que desce)
-const world = $("#world");
 const gauge = $("#gauge");
+function showGauge(meters) {
+  const f = Math.max(0, Math.min(1, meters / MAX_DEPTH));
+  $("#gauge-fill").style.height = (f * 100).toFixed(2) + "%";
+  $("#gauge-label").textContent = fmtNum(Math.round(meters)) + " m";
+}
+world.onDepth(showGauge);
 function setDepth(meters, show = true) {
   const f = Math.max(0, Math.min(1, meters / MAX_DEPTH));
-  document.documentElement.style.setProperty("--depth", f.toFixed(4));
+  world.camera(meters, { mode: show ? "game" : "home" });
+  if (!show) world.syncTunnel([]);
   gauge.hidden = !show;
   $("#gauge-fill").style.height = (f * 100).toFixed(2) + "%";
   $("#gauge-label").textContent = fmtNum(meters) + " m";
@@ -74,7 +81,10 @@ const routes = [
   [/^config$/, settingsPage],
   [/^faq$/, faq],
 ];
+let screenToken = 0;
 function route() {
+  screenToken++;
+  document.body.classList.remove("digging", "touring");
   clearScreen();
   closeMenu();
   const raw = location.hash.replace(/^#\/?/, "");
@@ -115,10 +125,11 @@ function home() {
         <p class="countdown">próximo garimpo em <b id="cd">--:--:--</b></p>
       </div>` : `
       <a class="btn btn-big" href="#/jogar" id="begin">▼ ${inProgress ? "CONTINUAR ESCAVAÇÃO" : "COMEÇAR A CAVAR"} ▼</a>`}
-    <div class="meta">
-      <span>garimpo #${n}${current ? ` · sequência ${current} 🔥` : ""}</span>
+    <div class="today card">
+      <div class="today-head"><b>GARIMPO #${n}</b><span>${formatDate(today)}</span>${current ? `<span class="streak">🔥 ${current} ${current === 1 ? "dia" : "dias"}</span>` : ""}</div>
+      ${done ? "" : `<div class="today-cats">${dailyPrompts(today).map((p, i) => `<span class="cat-pill" style="--cc:${CATEGORIES[p.cat].color};--i:${i}">${CATEGORIES[p.cat].emoji} ${esc(CATEGORIES[p.cat].name)}</span>`).join("")}</div>`}
+      ${homeStats()}
     </div>
-    ${done ? "" : `<p class="teaser">hoje no garimpo: ${dailyPrompts(today).map((p, i) => `<span class="teaser-chip" style="--i:${i}" title="${esc(CATEGORIES[p.cat].name)}">${CATEGORIES[p.cat].emoji}</span>`).join("")}</p>`}
     <details class="howto" ${store.get().seenHowTo ? "" : "open"}>
       <summary>▸ como jogar</summary>
       <ul>
@@ -141,6 +152,11 @@ function home() {
   </section>`;
   $(".howto").addEventListener("toggle", () => store.update((st) => { st.seenHowTo = true; }));
   if (done) startCountdown();
+}
+function homeStats() {
+  const s = store.stats();
+  if (!s.played) return `<p class="today-hint">7 categorias diferentes hoje. Quanto mais raro, mais fundo.</p>`;
+  return `<div class="today-stats"><span><b>${s.best}</b> recorde</span><span><b>${s.avg}</b> média</span><span><b>${s.gems}</b> pepitas 🌟</span><span><b>${s.bestStreak}</b> maior sequência</span></div>`;
 }
 function startCountdown() {
   const tick = () => {
@@ -168,6 +184,7 @@ function dive(cfg) {
   let busy = false;
   let lastTick = -1;
   let shownScore = null; // placar antes da última resposta (para animar a contagem)
+  const myScreen = screenToken;
 
   const scoreSoFar = () => run.results.reduce((a, r) => a + r.score, 0);
 
@@ -175,6 +192,7 @@ function dive(cfg) {
     clearLocal();
     const score = scoreSoFar();
     setDepth(depthOf(score), true);
+    world.syncTunnel(run.results);
     if (run.phase === "intro") return renderIntro();
     if (run.phase === "done") return finish();
     const p = prompts[run.i];
@@ -187,11 +205,11 @@ function dive(cfg) {
           const r = run.results[k];
           return `<i class="pip ${k === run.i ? "now" : ""} ${r ? "tier-" + (r.tier ?? "miss") : ""} ${r && k === run.i && run.phase === "feedback" ? "pop" : ""}">${r ? (r.tier ? TIERS[r.tier].emoji : MISS_EMOJI) : k + 1}</i>`;
         }).join("")}</span>
-        <span class="hud-score"><b id="hud-score">${shownScore ?? score}</b> pts</span>
+        <span class="hud-score"><b id="hud-score">${shownScore ?? score}</b> pts <small>📍 ${fmtNum(depthOf(score))} m</small></span>
       </header>
       ${cfg.banner ? `<div class="banner">${cfg.banner}</div>` : ""}
-      <article class="card prompt-card">
-        <div class="card-top"><span class="chip">${CATEGORIES[p.cat].emoji} ${CATEGORIES[p.cat].name}</span><span class="round">pergunta ${run.i + 1}/${total} · ${fmtNum(p.entries.length)} respostas no veio</span></div>
+      <article class="card prompt-card" style="--cc:${CATEGORIES[p.cat].color}">
+        <div class="card-top"><span class="chip cat">${CATEGORIES[p.cat].emoji} ${CATEGORIES[p.cat].name}</span><span class="round">pergunta ${run.i + 1}/${total} · ${fmtNum(p.entries.length)} respostas no veio</span></div>
         <h2 class="prompt ${run.phase === "preview" ? "reveal" : ""}">${esc(p.text)}</h2>
         ${run.phase === "feedback" ? feedbackHTML(res, p) : answerHTML()}
       </article>
@@ -228,7 +246,7 @@ function dive(cfg) {
       <form id="ans" autocomplete="off">
         <input id="inp" name="a" maxlength="80" placeholder="${run.phase === "preview" ? "prepara a pá…" : "sua resposta"}" ${run.phase === "preview" ? "disabled" : ""}
           autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="send" aria-label="Sua resposta">
-        <button class="btn" id="send" ${run.phase === "preview" ? "disabled" : ""}>cavar</button>
+        <button class="btn" id="send" ${run.phase === "preview" ? "disabled" : ""}>⛏ cavar</button>
       </form>
       <p class="msg" id="msg" aria-live="polite"></p>
       <div class="tried" id="tried">${(run.tried || []).map((t) => `<span class="tried-chip">${esc(t)}</span>`).join("")}</div>
@@ -242,6 +260,7 @@ function dive(cfg) {
         <div class="fb-emoji">${t ? TIERS[t].emoji : MISS_EMOJI}</div>
         <div class="fb-body">
           <div class="fb-tier">${t ? TIERS[t].name : "Nada"} <b>+${r.score}</b></div>
+          <div class="fb-depth">${r.score ? `⛏ +${fmtNum(r.score * 10)} m · agora a ${fmtNum(depthOf(scoreSoFar()))} m` : `a pá bateu na pedra · ${fmtNum(depthOf(scoreSoFar()))} m`}</div>
           ${r.answer ? `<div class="fb-ans">“${esc(r.answer)}”</div>` : ""}
           <div class="fb-quip">${esc(r.quip)}</div>
           ${t !== "pepita" && p.gem ? `<div class="fb-gem muted">a pepita fica pra revelação no final 🤫</div>` : ""}
@@ -330,32 +349,46 @@ function dive(cfg) {
     }
   }
 
-  function record(p, raw, entry) {
+  async function record(p, raw, entry) {
+    if (busy) return;
     busy = true;
+    clearLocal(); // para o relógio desta rodada
     const before = scoreSoFar();
     const tier = entry ? entry.tier : null;
     run.results[run.i] = {
       promptId: p.id, text: p.text, raw, answer: entry ? entry.name : raw, tier,
-      score: scoreOf(tier), quip: pick(QUIPS[tier ?? "miss"]), left: Math.max(0, run.endsAt - Date.now()),
+      score: scoreOf(tier), quip: pick(QUIPS[tier ?? "miss"]), left: Math.max(0, run.endsAt - Date.now()), tried: [...(run.tried || [])],
     };
     run.phase = "feedback";
     persist();
-    if (tier) sfx.tier(tier); else sfx.miss();
-    buzz(tier === "pepita" ? [30, 50, 30, 50, 90] : tier ? 25 : [60]);
+    document.activeElement?.blur?.();
+    document.body.classList.add("digging");
+    const from = depthOf(before), to = depthOf(scoreSoFar());
+    if (tier) {
+      let n = 0;
+      await world.dig({
+        from, to, tier, answer: entry.name,
+        onTick: () => { if (n++ % 3 === 0) sfx.scrape(); },
+        onPass: (t) => sfx.pass(TIER_ORDER.indexOf(t)),
+        onLand: (el) => {
+          sfx.tier(tier);
+          buzz(tier === "pepita" ? [30, 50, 30, 50, 90] : 25);
+          const rare = ["esmeralda", "diamante", "pepita"].includes(tier);
+          burst(el, { colors: rare ? ["#ffd23f", "#fff7b0", "#b9f2ff", "#39d98a"] : ["#7a4a2a", "#a3502a", "#c9a27e"], count: rare ? 26 : 14, sparkle: rare, spread: rare ? 130 : 80 });
+          floatText(el, "+" + scoreOf(tier));
+          if (tier === "pepita") confetti();
+        },
+      });
+    } else {
+      sfx.miss(); buzz([60]);
+      await world.clang(from);
+    }
+    document.body.classList.remove("digging");
     busy = false;
     shownScore = before;
+    if (myScreen !== screenToken) return; // saiu da tela no meio da escavação
     render();
-    const after = scoreSoFar();
-    layerToast(depthOf(before), depthOf(after));
-    const emo = $(".fb-emoji");
-    if (tier) {
-      const rare = ["esmeralda", "diamante", "pepita"].includes(tier);
-      burst(emo, { colors: rare ? ["#ffd23f", "#fff7b0", "#b9f2ff", "#39d98a"] : ["#7a4a2a", "#a3502a", "#c9a27e"], count: rare ? 22 : 12, sparkle: rare });
-      floatText(emo, "+" + scoreOf(tier));
-      replay($("#knob"), "dig");
-      burst($("#knob"), { count: 10, spread: 40 });
-    }
-    if (tier === "pepita") confetti();
+    if (tier) replay($("#knob"), "dig");
   }
 
   function next() {
@@ -386,6 +419,25 @@ function dive(cfg) {
   listen(document, "visibilitychange", () => { if (!document.hidden && $("#inp")) $("#inp").focus(); });
 }
 
+function profileHTML(results) {
+  return `<div class="profile" aria-label="perfil da escavação">${results.map((r, i) =>
+    `<span class="seg tier-${r.tier ?? "miss"}" style="flex:${Math.max(r.score || 0, 6)};--i:${i}" title="${esc(r.text)}: ${r.tier ? TIERS[r.tier].name : "nada"} (+${r.score})"><i>${r.tier ? TIERS[r.tier].emoji : MISS_EMOJI}</i></span>`).join("")}</div>
+    <p class="profile-cap">perfil da escavação · cada faixa é uma resposta</p>`;
+}
+const REPO_ISSUES = "https://github.com/GustavoLeitao07/garimpo/issues/new";
+function suggestHTML(results) {
+  const withTries = results.filter((r) => r.tried && r.tried.length);
+  if (!withTries.length) return "";
+  const body = "Respostas recusadas que eu acho que deviam valer:\n\n" + withTries.map((r) => `**${r.text}**\n` + r.tried.map((t) => `- ${t}`).join("\n")).join("\n\n");
+  const url = `${REPO_ISSUES}?title=${encodeURIComponent("Sugestão de respostas pro garimpo")}&body=${encodeURIComponent(body)}`;
+  return `<article class="card suggest">
+    <h3>🤔 recusadas que você acha que valiam?</h3>
+    ${withTries.map((r) => `<p><b>${esc(r.text)}</b><br>${r.tried.map((t) => `<span class="tried-chip">${esc(t)}</span>`).join(" ")}</p>`).join("")}
+    <a class="btn ghost" target="_blank" rel="noopener" href="${url}">sugerir pro garimpo ↗</a>
+    <p class="muted small">Abre uma sugestão no GitHub do jogo. As boas entram na próxima atualização.</p>
+  </article>`;
+}
+
 function ladderHTML(tier) {
   return `<div class="ladder" aria-label="escada de raridade">${TIER_ORDER.map((t) =>
     `<span class="rung tier-${t} ${t === tier ? "hit" : ""}" title="${TIERS[t].name} · ${TIERS[t].score}"><i>${TIERS[t].emoji}</i><small>${TIERS[t].score}</small></span>`).join("")}</div>`;
@@ -398,6 +450,7 @@ function showResults(cfg, result, { replay: again = false, fresh = false } = {})
   const max = results.length * 100;
   setDepth(depthOf(score), true);
   const share = cfg.share ? cfg.share(result) : null;
+  world.syncTunnel(results);
   app.innerHTML = `
   <section class="results">
     <article class="card result-head tier-${band.tier}">
@@ -406,8 +459,10 @@ function showResults(cfg, result, { replay: again = false, fresh = false } = {})
       <p class="depth">⛏️ ${fmtNum(depthOf(score))} metros de profundidade</p>
       <h2>${TIERS[band.tier].emoji} ${band.title}</h2>
       <p>${esc(band.text)}</p>
+      ${profileHTML(results)}
       <p class="emoji-row ${fresh ? "stagger" : ""}">${result.tiers.map((t, i) => `<span style="--i:${i}">${t ? TIERS[t].emoji : MISS_EMOJI}</span>`).join("")}</p>
       ${share ? `<div class="row center"><button class="btn" id="share">copiar resultado 📋</button><a class="btn zap" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(share)}">mandar no zap 💬</a></div>` : ""}
+      <div class="row center"><button class="btn ghost" id="tour">🎥 rever a escavação</button></div>
       ${cfg.resultExtras ? cfg.resultExtras(result) : ""}
     </article>
     <h3 class="section-title">o que tinha em cada veio</h3>
@@ -427,7 +482,8 @@ function showResults(cfg, result, { replay: again = false, fresh = false } = {})
         </li>`;
       }).join("")}
     </ol>
-    <div class="row center"><a class="btn" href="#/">◀ início</a> <a class="btn" href="#/infinito">∞ jogar infinito</a></div>
+    ${suggestHTML(results)}
+    <div class="row center"><a class="btn ghost" href="#/">◀ início</a> <a class="btn" href="#/infinito">∞ jogar infinito</a></div>
   </section>`;
   if (share) {
     $("#share").addEventListener("click", async () => {
@@ -435,6 +491,10 @@ function showResults(cfg, result, { replay: again = false, fresh = false } = {})
       toast(ok ? "copiado! cola no grupo da família 😎" : "não deu pra copiar 😕");
     });
   }
+  $("#tour").addEventListener("click", async () => {
+    sfx.dig();
+    await world.tour(depthOf(score));
+  });
   if (fresh) {
     later(250, () => countUp($("#big-score"), 0, score, 1400));
     if (score >= 381) later(1500, confetti);
@@ -514,7 +574,7 @@ function packList() {
       ${Object.entries(CATEGORIES).map(([id, c]) => {
         const count = PROMPTS.filter((p) => p.cat === id).length;
         const prog = st.packs[id];
-        return `<a class="card pack" href="#/pacote/${id}">
+        return `<a class="card pack" href="#/pacote/${id}" style="--cc:${c.color}">
           <div class="pack-emoji">${c.emoji}</div>
           <b>${c.name}</b>
           <small>${esc(c.desc)}</small>
@@ -562,7 +622,7 @@ function playUnlimited(query = {}) {
       ${vs ? `<p class="vs">${r.score > vs.score ? "🏆 Você cavou mais fundo que" : r.score === vs.score ? "🤝 Empate com" : "😅 Não foi dessa vez contra"} <b>${esc(vs.name)}</b> (${vs.score} pts)</p>` : ""}
       <div class="row center">
         <button class="btn" id="challenge">⚔️ desafiar alguém</button>
-        <a class="btn" href="#/infinito" id="again">nova escavação ↻</a>
+        <a class="btn ghost" href="#/infinito" id="again">nova escavação ↻</a>
       </div>
       <p class="msg" id="ch-msg" aria-live="polite"></p>`,
     onFinish: (r) => store.update((s) => {
@@ -653,8 +713,8 @@ function partyRender() {
   const head = `<header class="hud"><span class="hud-title">🎉 RESENHA</span><span>rodada ${P.r + 1}/${P.prompts.length}</span></header>`;
   if (P.phase === "intro") {
     app.innerHTML = `<section class="dive">${head}
-      <article class="card prompt-card">
-        <div class="card-top"><span class="chip">${CATEGORIES[p.cat].emoji} ${CATEGORIES[p.cat].name}</span></div>
+      <article class="card prompt-card" style="--cc:${CATEGORIES[p.cat].color}">
+        <div class="card-top"><span class="chip cat">${CATEGORIES[p.cat].emoji} ${CATEGORIES[p.cat].name}</span></div>
         <h2 class="prompt">${esc(p.text)}</h2>
         <p class="muted">Todo mundo leu? Cada um vai responder escondido, na vez.</p>
         <button class="btn btn-big" id="ok">bora ▶</button>
@@ -926,6 +986,7 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(
 $("#btn-sound").addEventListener("click", () => { store.update((s) => { s.settings.sound = !s.settings.sound; }); applySettings(); unlockAudio(); sfx.click(); });
 $("#btn-mascot").addEventListener("click", () => go("#/meu"));
 window.addEventListener("hashchange", route);
+world.initWorld($("#world"));
 buildGauge();
 applySettings();
 route();

@@ -35,7 +35,9 @@ export const sfx = {
   tick: () => tone(1200, 0.03, "square", 0.025),
   correction: () => tone(520, 0.08, "triangle", 0.05),
   tier: (t) => { noise(0.12, 0.06); (TIER_NOTES[t] || [150]).forEach((f, i) => tone(f, 0.16, t === "pepita" ? "triangle" : "square", 0.05, 0.08 + i * 0.09)); },
-  miss: () => tone(140, 0.3, "triangle", 0.06, 0, -60),
+  miss: () => { tone(900, 0.05, "square", 0.05); tone(620, 0.08, "square", 0.04, 0.05); tone(140, 0.3, "triangle", 0.06, 0.1, -60); },
+  scrape: () => noise(0.09, 0.05),
+  pass: (i) => tone(392 + i * 70, 0.07, "square", 0.035),
   done: () => [392, 523, 659, 784, 659, 784].forEach((f, i) => tone(f, 0.14, "triangle", 0.05, i * 0.1)),
 };
 export const unlockAudio = () => ac();

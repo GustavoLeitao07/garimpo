@@ -81,6 +81,18 @@ function hash(str) { // FNV-1a
   return h >>> 0;
 }
 
+/** Gera apelidos automáticos: sem parênteses ("Como Vender Drogas Online (Rápido)") e sem subtítulo ("Laços" em "Turma da Mônica: Laços"). */
+function expandAliases(list) {
+  const out = [...list];
+  for (const a of list) {
+    const noParen = a.replace(/\s*\([^)]*\)\s*/g, " ").trim();
+    if (noParen && noParen !== a) out.push(noParen);
+    const m = a.match(/^(.{4,}?)\s*[:–—]\s*(.{3,})$/);
+    if (m) out.push(m[1].trim());
+  }
+  return [...new Set(out)];
+}
+
 function buildPrompt(row) {
   const [cat, text, ...tierStrs] = row;
   const entries = [];
@@ -89,8 +101,10 @@ function buildPrompt(row) {
   tierStrs.forEach((str, ti) => {
     if (!str) return;
     for (const item of str.split("|")) {
-      const aliases = item.split("/").map((a) => a.trim()).filter(Boolean);
+      const aliases = expandAliases(item.split("/").map((a) => a.trim()).filter(Boolean));
       if (!aliases.length) continue;
+      // resposta repetida (ex.: vinda de um suplemento): mantém a classificação original
+      if (aliases.every((a) => index.has(norm(a)))) continue;
       const entry = { name: aliases[0], tier: TIER_ORDER[ti] };
       entries.push(entry);
       for (const a of aliases) {
@@ -139,6 +153,14 @@ export function lookup(prompt, raw) {
   const direct = prompt.index.get(k) || prompt.loose.get(k) || prompt.loose.get(k.replace(/ /g, "")) || prompt.loose.get(stripFillers(k));
   if (direct) return { entry: direct, exact: true };
   const q = stripFillers(k);
+  // começo inequívoco de um título longo ("como vender drogas" -> "Como Vender Drogas Online…")
+  if (q.length >= 8 && q.includes(" ")) {
+    let found = null, count = 0;
+    for (const [key, entry] of prompt.index) {
+      if (key.startsWith(q + " ") && found !== entry) { found = entry; count++; if (count > 1) break; }
+    }
+    if (count === 1) return { entry: found, exact: true };
+  }
   const max = q.length < 5 ? 0 : q.length < 9 ? 1 : 2;
   if (max === 0) return null;
   let best = null, bestD = max + 1;
