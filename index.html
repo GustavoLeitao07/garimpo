@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Garimpo · o garimpo diário</title>
+  <meta name="description" content="7 perguntas por dia, iguais pra todo o Brasil. Resposta óbvia é cascalho. Resposta rara vale ouro.">
+  <meta name="theme-color" content="#3a2414">
+  <meta property="og:title" content="Garimpo · o garimpo diário">
+  <meta property="og:description" content="7 perguntas por dia. Resposta rara vale ouro. Até onde você consegue cavar?">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="pt_BR">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,600;1,400&family=Pixelify+Sans:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="world" aria-hidden="true"><div class="strata"><div class="sun"></div><div class="clouds"></div><div class="speckles"></div></div></div>
+
+  <header class="topbar">
+    <button id="btn-menu" class="icon-btn" aria-label="Abrir menu">☰</button>
+    <a href="#/" class="brand">GARIMPO</a>
+    <div class="top-right">
+      <button id="btn-sound" class="icon-btn" aria-label="Som">🔊</button>
+      <a href="#/config" class="icon-btn" aria-label="Configurações">⚙</a>
+      <button id="btn-mascot" class="icon-btn mascot-btn" aria-label="Meu garimpo e mascotes"></button>
+    </div>
+  </header>
+
+  <nav id="drawer" aria-hidden="true">
+    <div class="drawer-panel">
+      <button class="close icon-btn" aria-label="Fechar menu">×</button>
+      <p class="drawer-title">GARIMPO</p>
+      <a href="#/">⛏️ Garimpo diário</a>
+      <a href="#/infinito">∞ Infinito</a>
+      <a href="#/resenha">🎉 Resenha (multiplayer)</a>
+      <a href="#/arquivo">⟲ Arquivo</a>
+      <a href="#/pacotes">🧰 Pacotes temáticos</a>
+      <a href="#/meu">📊 Meu garimpo</a>
+      <a href="#/config">⚙ Configurações</a>
+      <a href="#/faq">❓ Perguntas frequentes</a>
+      <p class="drawer-foot">resposta rara vale ouro.</p>
+    </div>
+  </nav>
+
+  <aside id="gauge" hidden aria-hidden="true">
+    <div class="gauge-track"><div id="gauge-marks"></div><div id="gauge-fill"><i class="knob">⛏</i></div></div>
+    <span id="gauge-label">0 m</span>
+  </aside>
+
+  <main id="app" tabindex="-1"><noscript>O Garimpo precisa de JavaScript ligado.</noscript></main>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
