@@ -6,6 +6,8 @@ import {
 import * as store from "./store.js";
 import { sfx, unlockAudio } from "./sound.js";
 import { MASCOTS, spriteSVG } from "./sprites.js";
+import { burst, floatText, countUp, toast, buzz, replay } from "./fx.js";
+import { ACHIEVEMENTS, check as checkAchievements } from "./achievements.js";
 
 const SITE = location.origin + location.pathname;
 const $ = (s, r = document) => r.querySelector(s);
@@ -55,6 +57,7 @@ function applySettings() {
   $("#btn-sound").textContent = s.sound ? "🔊" : "🔇";
   $("#btn-sound").setAttribute("aria-label", s.sound ? "Desligar som" : "Ligar som");
   $("#btn-mascot").innerHTML = spriteSVG(s.mascot, 2);
+  $("#knob").innerHTML = spriteSVG(s.mascot, 2);
 }
 
 // ---------------------------------------------------------------- roteador
@@ -79,7 +82,7 @@ function route() {
   const query = Object.fromEntries(new URLSearchParams(qs || ""));
   for (const [re, fn] of routes) {
     const m = path.match(re);
-    if (m) { window.scrollTo(0, 0); fn(...m.slice(1), query); return; }
+    if (m) { window.scrollTo(0, 0); fn(...m.slice(1), query); replay(app, "enter"); return; }
   }
   home();
 }
@@ -104,6 +107,18 @@ function home() {
     <p class="tagline">o garimpo diário</p>
     <p class="sub">7 perguntas · 30 segundos cada · resposta rara vale ouro</p>
     <div class="mascot-stage">${spriteSVG(s.mascot, 6, "bob")}<span class="speech">${esc(MASCOTS.find((m) => m.id === s.mascot)?.sound ?? "")}</span></div>
+    ${done ? `
+      <div class="done-box">
+        <p>Garimpo #${n} concluído: <b>${done.score} pts</b> · ${fmtNum(depthOf(done.score))} m</p>
+        <p class="emoji-row">${done.tiers.map((t) => (t ? TIERS[t].emoji : MISS_EMOJI)).join("")}</p>
+        <a class="btn" href="#/jogar">ver resultado</a>
+        <p class="countdown">próximo garimpo em <b id="cd">--:--:--</b></p>
+      </div>` : `
+      <a class="btn btn-big" href="#/jogar" id="begin">▼ ${inProgress ? "CONTINUAR ESCAVAÇÃO" : "COMEÇAR A CAVAR"} ▼</a>`}
+    <div class="meta">
+      <span>garimpo #${n}${current ? ` · sequência ${current} 🔥` : ""}</span>
+    </div>
+    ${done ? "" : `<p class="teaser">hoje no garimpo: ${dailyPrompts(today).map((p, i) => `<span class="teaser-chip" style="--i:${i}" title="${esc(CATEGORIES[p.cat].name)}">${CATEGORIES[p.cat].emoji}</span>`).join("")}</p>`}
     <details class="howto" ${store.get().seenHowTo ? "" : "open"}>
       <summary>▸ como jogar</summary>
       <ul>
@@ -117,17 +132,6 @@ function home() {
       </ul>
       <div class="tier-legend">${TIER_ORDER.map((t) => `<span class="chip tier-${t}">${TIERS[t].emoji} ${TIERS[t].name} <b>${TIERS[t].score}</b></span>`).join("")}</div>
     </details>
-    ${done ? `
-      <div class="done-box">
-        <p>Garimpo #${n} concluído: <b>${done.score} pts</b> · ${fmtNum(depthOf(done.score))} m</p>
-        <p class="emoji-row">${done.tiers.map((t) => (t ? TIERS[t].emoji : MISS_EMOJI)).join("")}</p>
-        <a class="btn" href="#/jogar">ver resultado</a>
-        <p class="countdown">próximo garimpo em <b id="cd">--:--:--</b></p>
-      </div>` : `
-      <a class="btn btn-big" href="#/jogar" id="begin">▼ ${inProgress ? "CONTINUAR ESCAVAÇÃO" : "COMEÇAR A CAVAR"} ▼</a>`}
-    <div class="meta">
-      <span>garimpo #${n}${current ? ` · sequência ${current} 🔥` : ""}</span>
-    </div>
     <nav class="modes">
       <a href="#/resenha" class="mode"><b>🎉 Resenha</b><small>multiplayer no mesmo celular</small></a>
       <a href="#/infinito" class="mode"><b>∞ Infinito</b><small>cava quanto quiser + desafio</small></a>
@@ -163,6 +167,7 @@ function dive(cfg) {
   const persist = () => store.update((s) => { s.runs[cfg.key] = run; });
   let busy = false;
   let lastTick = -1;
+  let shownScore = null; // placar antes da última resposta (para animar a contagem)
 
   const scoreSoFar = () => run.results.reduce((a, r) => a + r.score, 0);
 
@@ -180,17 +185,19 @@ function dive(cfg) {
         <span class="hud-title">${esc(cfg.title)}</span>
         <span class="pips">${prompts.map((_, k) => {
           const r = run.results[k];
-          return `<i class="pip ${k === run.i ? "now" : ""} ${r ? "tier-" + (r.tier ?? "miss") : ""}">${r ? (r.tier ? TIERS[r.tier].emoji : MISS_EMOJI) : k + 1}</i>`;
+          return `<i class="pip ${k === run.i ? "now" : ""} ${r ? "tier-" + (r.tier ?? "miss") : ""} ${r && k === run.i && run.phase === "feedback" ? "pop" : ""}">${r ? (r.tier ? TIERS[r.tier].emoji : MISS_EMOJI) : k + 1}</i>`;
         }).join("")}</span>
-        <span class="hud-score"><b>${score}</b> pts</span>
+        <span class="hud-score"><b id="hud-score">${shownScore ?? score}</b> pts</span>
       </header>
       ${cfg.banner ? `<div class="banner">${cfg.banner}</div>` : ""}
       <article class="card prompt-card">
-        <div class="card-top"><span class="chip">${CATEGORIES[p.cat].emoji} ${CATEGORIES[p.cat].name}</span><span class="round">pergunta ${run.i + 1}/${total}</span></div>
-        <h2 class="prompt">${esc(p.text)}</h2>
+        <div class="card-top"><span class="chip">${CATEGORIES[p.cat].emoji} ${CATEGORIES[p.cat].name}</span><span class="round">pergunta ${run.i + 1}/${total} · ${fmtNum(p.entries.length)} respostas no veio</span></div>
+        <h2 class="prompt ${run.phase === "preview" ? "reveal" : ""}">${esc(p.text)}</h2>
         ${run.phase === "feedback" ? feedbackHTML(res, p) : answerHTML()}
       </article>
     </section>`;
+    if (shownScore != null && shownScore !== score) countUp($("#hud-score"), shownScore, score);
+    shownScore = null;
     if (run.phase === "feedback") {
       const nextBtn = $("#next");
       nextBtn.addEventListener("click", next);
@@ -224,6 +231,7 @@ function dive(cfg) {
         <button class="btn" id="send" ${run.phase === "preview" ? "disabled" : ""}>cavar</button>
       </form>
       <p class="msg" id="msg" aria-live="polite"></p>
+      <div class="tried" id="tried">${(run.tried || []).map((t) => `<span class="tried-chip">${esc(t)}</span>`).join("")}</div>
       <button class="link-btn" id="skip" type="button">pular (vale 0)</button>`;
   }
 
@@ -239,12 +247,14 @@ function dive(cfg) {
           ${t !== "pepita" && p.gem ? `<div class="fb-gem muted">a pepita fica pra revelação no final 🤫</div>` : ""}
         </div>
       </div>
+      ${ladderHTML(t)}
       <button class="btn btn-big" id="next">${run.i + 1 >= total ? "VER O TESOURO ▶" : "CAVAR MAIS FUNDO ▼"}</button>`;
   }
 
   function startRound() {
     const now = Date.now();
     run.phase = "preview";
+    run.tried = [];
     run.previewEndsAt = now + PREVIEW_MS;
     run.endsAt = run.previewEndsAt + ANSWER_MS;
     persist();
@@ -252,7 +262,7 @@ function dive(cfg) {
   }
 
   function bindAnswer(p) {
-    const inp = $("#inp"), form = $("#ans"), msg = $("#msg"), bar = $("#bar"), secs = $("#secs");
+    const inp = $("#inp"), form = $("#ans"), msg = $("#msg"), bar = $("#bar"), secs = $("#secs"), card = $(".prompt-card");
     let pendingCorrection = null;
     const setMsg = (html, cls = "") => { msg.className = "msg " + cls; msg.innerHTML = html; };
 
@@ -267,6 +277,7 @@ function dive(cfg) {
       const left = Math.max(0, run.endsAt - now);
       bar.style.width = (left / ANSWER_MS) * 100 + "%";
       bar.classList.toggle("hurry", left < 8000);
+      card.classList.toggle("hurry", left > 0 && left < 5000);
       const sLeft = Math.ceil(left / 1000);
       secs.textContent = sLeft + "s";
       if (left < 5000 && sLeft !== lastTick) { lastTick = sLeft; sfx.tick(); }
@@ -299,8 +310,14 @@ function dive(cfg) {
       }
       if (final) return;
       sfx.reject();
+      buzz([30, 40, 30]);
       setMsg(`“${esc(raw)}”: nenhum brilho nesse veio. tenta outra!`, "bad");
-      const card = $(".prompt-card"); card.classList.remove("shake"); void card.offsetWidth; card.classList.add("shake");
+      replay(card, "shake");
+      burst(inp, { colors: ["#5a4148", "#3a2a2a", "#8a7a68"], count: 8, spread: 50 });
+      if (!(run.tried ||= []).includes(raw)) {
+        run.tried.push(raw); persist();
+        $("#tried").insertAdjacentHTML("beforeend", `<span class="tried-chip new">${esc(raw)}</span>`);
+      }
       if (settings.clearRejected) inp.value = "";
       inp.focus(); inp.select();
     }
@@ -319,15 +336,25 @@ function dive(cfg) {
     const tier = entry ? entry.tier : null;
     run.results[run.i] = {
       promptId: p.id, text: p.text, raw, answer: entry ? entry.name : raw, tier,
-      score: scoreOf(tier), quip: pick(QUIPS[tier ?? "miss"]),
+      score: scoreOf(tier), quip: pick(QUIPS[tier ?? "miss"]), left: Math.max(0, run.endsAt - Date.now()),
     };
     run.phase = "feedback";
     persist();
     if (tier) sfx.tier(tier); else sfx.miss();
+    buzz(tier === "pepita" ? [30, 50, 30, 50, 90] : tier ? 25 : [60]);
     busy = false;
+    shownScore = before;
     render();
     const after = scoreSoFar();
     layerToast(depthOf(before), depthOf(after));
+    const emo = $(".fb-emoji");
+    if (tier) {
+      const rare = ["esmeralda", "diamante", "pepita"].includes(tier);
+      burst(emo, { colors: rare ? ["#ffd23f", "#fff7b0", "#b9f2ff", "#39d98a"] : ["#7a4a2a", "#a3502a", "#c9a27e"], count: rare ? 22 : 12, sparkle: rare });
+      floatText(emo, "+" + scoreOf(tier));
+      replay($("#knob"), "dig");
+      burst($("#knob"), { count: 10, spread: 40 });
+    }
     if (tier === "pepita") confetti();
   }
 
@@ -344,7 +371,8 @@ function dive(cfg) {
     store.update((s) => { delete s.runs[cfg.key]; });
     cfg.onFinish?.(result);
     sfx.done();
-    showResults(cfg, result);
+    showResults(cfg, result, { fresh: true });
+    checkAchievements({ mode: cfg.mode, result, wonChallenge: cfg.wonChallenge?.(result) });
   }
 
   // Se a página foi recarregada no meio da rodada e o tempo acabou, conta como perdida.
@@ -358,8 +386,13 @@ function dive(cfg) {
   listen(document, "visibilitychange", () => { if (!document.hidden && $("#inp")) $("#inp").focus(); });
 }
 
+function ladderHTML(tier) {
+  return `<div class="ladder" aria-label="escada de raridade">${TIER_ORDER.map((t) =>
+    `<span class="rung tier-${t} ${t === tier ? "hit" : ""}" title="${TIERS[t].name} · ${TIERS[t].score}"><i>${TIERS[t].emoji}</i><small>${TIERS[t].score}</small></span>`).join("")}</div>`;
+}
+
 // ---------------------------------------------------------------- RESULTADOS
-function showResults(cfg, result, { replay = false } = {}) {
+function showResults(cfg, result, { replay: again = false, fresh = false } = {}) {
   const { score, results } = result;
   const band = bandFor(score);
   const max = results.length * 100;
@@ -368,27 +401,27 @@ function showResults(cfg, result, { replay = false } = {}) {
   app.innerHTML = `
   <section class="results">
     <article class="card result-head tier-${band.tier}">
-      <p class="muted">${esc(cfg.title)}${replay ? " · já concluído" : ""}</p>
-      <div class="big-score"><b>${score}</b><small>/${max} pts</small></div>
+      <p class="muted">${esc(cfg.title)}${again ? " · já concluído" : ""}</p>
+      <div class="big-score"><b id="big-score">${fresh ? 0 : score}</b><small>/${max} pts</small></div>
       <p class="depth">⛏️ ${fmtNum(depthOf(score))} metros de profundidade</p>
       <h2>${TIERS[band.tier].emoji} ${band.title}</h2>
       <p>${esc(band.text)}</p>
-      <p class="emoji-row">${result.tiers.map((t) => (t ? TIERS[t].emoji : MISS_EMOJI)).join("")}</p>
-      ${share ? `<div class="row"><button class="btn" id="share">compartilhar 📋</button></div><p class="msg" id="share-msg" aria-live="polite"></p>` : ""}
+      <p class="emoji-row ${fresh ? "stagger" : ""}">${result.tiers.map((t, i) => `<span style="--i:${i}">${t ? TIERS[t].emoji : MISS_EMOJI}</span>`).join("")}</p>
+      ${share ? `<div class="row center"><button class="btn" id="share">copiar resultado 📋</button><a class="btn zap" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(share)}">mandar no zap 💬</a></div>` : ""}
       ${cfg.resultExtras ? cfg.resultExtras(result) : ""}
     </article>
     <h3 class="section-title">o que tinha em cada veio</h3>
-    <ol class="res-list">
-      ${results.map((r) => {
+    <ol class="res-list ${fresh ? "stagger" : ""}">
+      ${results.map((r, idx) => {
         const p = PROMPT_BY_ID.get(r.promptId);
-        return `<li class="card res-row tier-${r.tier ?? "miss"}">
+        return `<li class="card res-row tier-${r.tier ?? "miss"}" style="--i:${idx}">
           <div class="res-emoji">${r.tier ? TIERS[r.tier].emoji : MISS_EMOJI}</div>
           <div class="res-body">
             <div class="res-q">${esc(r.text)}</div>
             <div class="res-a">${r.answer ? `“${esc(r.answer)}”` : "<i>sem resposta</i>"} · ${r.tier ? TIERS[r.tier].name : "nada"} <b>+${r.score}</b></div>
             ${p?.gem ? `<div class="res-gem">🌟 a pepita era: <b>${esc(p.gem.name)}</b></div>` : ""}
             ${p ? `<details class="sheet"><summary>ver o garimpo completo (${p.entries.length} respostas)</summary>
-              ${answerSheet(p).map((row) => `<div class="sheet-row tier-${row.tier}"><span class="chip tier-${row.tier}">${TIERS[row.tier].emoji} ${TIERS[row.tier].name}</span> ${row.sample.map(esc).join(", ")}${row.total > row.sample.length ? ` <span class="muted">+${row.total - row.sample.length}</span>` : ""}</div>`).join("")}
+              ${answerSheet(p, Infinity).map((row) => `<div class="sheet-row tier-${row.tier}"><span class="chip tier-${row.tier}">${TIERS[row.tier].emoji} ${TIERS[row.tier].name} · ${row.total}</span> ${row.sample.map((n) => n === r.answer && r.tier === row.tier ? `<mark>${esc(n)}</mark>` : esc(n)).join(", ")}</div>`).join("")}
             </details>` : ""}
           </div>
         </li>`;
@@ -399,8 +432,12 @@ function showResults(cfg, result, { replay = false } = {}) {
   if (share) {
     $("#share").addEventListener("click", async () => {
       const ok = await copyText(share);
-      $("#share-msg").textContent = ok ? "copiado! cola no grupo da família 😎" : share;
+      toast(ok ? "copiado! cola no grupo da família 😎" : "não deu pra copiar 😕");
     });
+  }
+  if (fresh) {
+    later(250, () => countUp($("#big-score"), 0, score, 1400));
+    if (score >= 381) later(1500, confetti);
   }
   if ($("#cd")) startCountdown();
   bindExtras?.();
@@ -426,7 +463,7 @@ function playDaily() {
   const done = store.get().daily[today];
   if (done) return showResults({ title, share, resultExtras: extras }, done, { replay: true });
   dive({
-    key: "daily:" + today, title, prompts: dailyPrompts(today), share, resultExtras: extras,
+    key: "daily:" + today, mode: "daily", title, prompts: dailyPrompts(today), share, resultExtras: extras,
     onFinish: (r) => store.update((s) => { s.daily[today] = r; }),
   });
 }
@@ -461,7 +498,7 @@ function playArchive(date) {
   const prev = store.get().daily[date] || store.get().archive[date];
   if (prev) return showResults({ title, share }, prev, { replay: true });
   dive({
-    key: "archive:" + date, title, prompts: dailyPrompts(date), share,
+    key: "archive:" + date, mode: "archive", title, prompts: dailyPrompts(date), share,
     onFinish: (r) => store.update((s) => { s.archive[date] = r; }),
   });
 }
@@ -496,7 +533,7 @@ function playPack(cat) {
   const seen = new Set(store.get().packs[cat]?.seen || []);
   const prompts = existing ? existing.ids.map((id) => PROMPT_BY_ID.get(id)).filter(Boolean) : randomPrompts(newSeed(), ROUNDS, cat, seen);
   dive({
-    key, title: `${c.emoji} ${c.name.toUpperCase()}`, prompts,
+    key, mode: "pack", title: `${c.emoji} ${c.name.toUpperCase()}`, prompts,
     share: (r) => `Garimpo · ${c.name} ${c.emoji}\n${emojiRow(r.tiers)}\n${r.score} pts\n${SITE}`,
     resultExtras: () => `<div class="row center"><a class="btn" href="#/pacote/${cat}" id="again">cavar de novo ↻</a></div>`,
     onFinish: (r) => store.update((s) => {
@@ -518,7 +555,8 @@ function playUnlimited(query = {}) {
   if (existing && existing.seed !== seed) store.update((s) => { delete s.runs.unlimited; });
   const banner = vs ? `⚔️ <b>${esc(vs.name)}</b> fez <b>${vs.score} pts</b> nesse garimpo. Consegue cavar mais fundo?` : "";
   dive({
-    key: "unlimited", title: `∞ INFINITO · ${seed}`, prompts, banner,
+    key: "unlimited", mode: "unlimited", title: `∞ INFINITO · ${seed}`, prompts, banner,
+    wonChallenge: (r) => !!vs && r.score > vs.score,
     share: (r) => `Garimpo ∞ ${seed} ⛏️\n${emojiRow(r.tiers)}\n${r.score} pts\n${SITE}#/infinito?s=${seed}`,
     resultExtras: (r) => `
       ${vs ? `<p class="vs">${r.score > vs.score ? "🏆 Você cavou mais fundo que" : r.score === vs.score ? "🤝 Empate com" : "😅 Não foi dessa vez contra"} <b>${esc(vs.name)}</b> (${vs.score} pts)</p>` : ""}
@@ -545,7 +583,7 @@ function playUnlimited(query = {}) {
       const sc = Number($(".big-score b").textContent);
       const link = `${SITE}#/infinito?s=${seed}&n=${encodeURIComponent(name || "Alguém")}&p=${sc}`;
       const ok = await copyText(`⚔️ Fiz ${sc} pts no Garimpo. Duvido você cavar mais fundo:\n${link}`);
-      $("#ch-msg").textContent = ok ? "link do desafio copiado!" : link;
+      if (ok) toast("link do desafio copiado! ⚔️"); else $("#ch-msg").textContent = link;
     });
   };
 }
@@ -719,6 +757,7 @@ function partyRender() {
         <div class="row center"><button class="btn" id="again">revanche ↻</button><button class="btn" id="new">novos jogadores</button></div>
       </article></section>`;
     confetti();
+    checkAchievements({ mode: "party" });
     $("#again").addEventListener("click", () => {
       P = { ...P, players: P.players.map((x) => ({ ...x, score: 0 })), prompts: randomPrompts(newSeed(), P.prompts.length), r: 0, turn: 0, answers: [], phase: "intro" };
       partyRender();
@@ -765,6 +804,11 @@ function myStats() {
     <div class="dist">${[...TIER_ORDER.slice().reverse(), "miss"].map((t) => `
       <div class="dist-row"><span>${t === "miss" ? MISS_EMOJI + " Nada" : TIERS[t].emoji + " " + TIERS[t].name}</span>
       <div class="dist-bar tier-${t}"><i style="width:${(s.dist[t] / maxDist) * 100}%"></i></div><b>${s.dist[t]}</b></div>`).join("")}</div>
+    <h3>conquistas (${Object.keys(st.achievements || {}).length}/${ACHIEVEMENTS.length})</h3>
+    <div class="achvs">${ACHIEVEMENTS.map((a) => {
+      const when = st.achievements?.[a.id];
+      return `<div class="achv ${when ? "on" : ""}"><span class="achv-emoji">${when ? a.emoji : "🔒"}</span><span><b>${esc(a.name)}</b><small>${esc(a.desc)}${when ? ` · ${formatDate(when)}` : ""}</small></span></div>`;
+    }).join("")}</div>
     <h3>coleção de mascotes</h3>
     ${mascotGrid(s.bestStreak)}
     <p class="muted">Mascotes destravam com a sua maior sequência de dias seguidos.</p>
@@ -797,6 +841,7 @@ function settingsPage() {
     <h2>⚙ Configurações</h2>
     <div class="card form">
       ${tog("sound", "Som", "Efeitos sonoros 8-bit.")}
+      ${tog("vibrate", "Vibração", "Vibra o celular ao acertar, errar e achar pepita.")}
       ${tog("confirmCorrections", "Confirmar autocorreção", "Quando você erra uma letra, mostra a correção antes de aceitar.")}
       ${tog("clearRejected", "Limpar resposta recusada", "Apaga o campo quando a resposta não existe no garimpo.")}
       ${tog("contrast", "Alto contraste / daltonismo", "Cores mais fortes e níveis identificados por texto e borda.")}
@@ -816,7 +861,7 @@ function settingsPage() {
   $("#export").addEventListener("click", async () => {
     const code = btoa(unescape(encodeURIComponent(JSON.stringify(store.get()))));
     const ok = await copyText(code);
-    $("#dmsg").textContent = ok ? "código copiado! cole em \"importar\" no outro aparelho." : code;
+    if (ok) toast("código copiado! cole em \"importar\" no outro aparelho."); else $("#dmsg").textContent = code;
   });
   $("#import").addEventListener("click", () => {
     const code = prompt("Cole o código exportado:");
@@ -845,6 +890,8 @@ function faq() {
     ["as perguntas são iguais pra todo mundo?", "Sim. O garimpo diário é sorteado a partir da data (horário de Brasília) e muda à meia-noite."],
     ["como funciona a Resenha?", "É o modo festa: 2 a 8 pessoas no mesmo celular. Cada um responde escondido e, se duas pessoas derem a mesma resposta, ninguém pontua com ela."],
     ["e o desafio?", "No modo Infinito, termine uma escavação e toque em \"desafiar alguém\". O link leva seu amigo pras mesmas 7 perguntas com o seu placar na tela."],
+    ["dá pra instalar no celular?", "Dá! No Android/Chrome, abra o menu ☰ e toque em \"instalar no celular\" (ou em \"Adicionar à tela inicial\" no menu do navegador). No iPhone, toque em Compartilhar → \"Adicionar à Tela de Início\". Depois de instalado, funciona até sem internet."],
+    ["o que são as conquistas?", "São medalhas por feitos especiais: achar duas pepitas no mesmo dia, responder em menos de 3 segundos, fazer 500 pontos, manter a sequência… Veja todas em \"Meu garimpo\"."],
     ["meus dados vão pra algum lugar?", "Não. Tudo fica no seu navegador. Dá pra exportar/importar o progresso nas configurações."],
     ["quantas perguntas existem?", `Hoje são ${PROMPTS.length} perguntas e ${fmtNum(total)} respostas aceitas, em ${Object.keys(CATEGORIES).length} categorias.`],
     ["de onde veio a ideia?", "Garimpo é um jogo do gênero de \"resposta rara\" (como Pointless e Krillion), feito do zero em português, com temas e cultura brasileira."],
@@ -882,3 +929,14 @@ window.addEventListener("hashchange", route);
 buildGauge();
 applySettings();
 route();
+let installEvt = null;
+window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installEvt = e; $("#install").hidden = false; });
+$("#install").addEventListener("click", async () => {
+  if (!installEvt) return;
+  installEvt.prompt();
+  await installEvt.userChoice.catch(() => null);
+  installEvt = null; $("#install").hidden = true;
+});
+if ("serviceWorker" in navigator && location.protocol === "https:") {
+  navigator.serviceWorker.register("sw.js").catch(() => { /* offline indisponível */ });
+}

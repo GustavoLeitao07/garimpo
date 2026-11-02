@@ -3,7 +3,7 @@ import { addDays, todayStr, TIER_ORDER } from "./core.js";
 
 const KEY = "garimpo:v1";
 const DEFAULTS = {
-  settings: { sound: true, contrast: false, lowPower: false, clearRejected: false, confirmCorrections: true, mascot: "tatu", name: "" },
+  settings: { sound: true, contrast: false, lowPower: false, clearRejected: false, confirmCorrections: true, vibrate: true, mascot: "tatu", name: "" },
   daily: {},      // data -> {score, tiers, results}
   archive: {},    // data -> {score, tiers, results}
   packs: {},      // cat -> {plays, best, seen: []}

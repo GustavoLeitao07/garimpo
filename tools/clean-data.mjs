@@ -20,7 +20,7 @@ function cleanTier(str) {
 
 for (const file of readdirSync(dir).filter((f) => f.endsWith(".js") && f !== "index.js")) {
   const mod = await import(pathToFileURL(path.join(dir, file)).href + "?" + Date.now());
-  const hasCat = file === "extra.js";
+  const hasCat = file.startsWith("extra");
   const out = mod.default.map((row) => {
     const head = hasCat ? row.slice(0, 2) : row.slice(0, 1);
     const tiers = (hasCat ? row.slice(2) : row.slice(1)).map(cleanTier);
